@@ -1,0 +1,98 @@
+# Glance (Imaging Service)
+
+- name: installing the packages
+  apt:
+    name: glance
+    state: latest
+
+- name: configuring glance-api.conf database connection
+  lineinfile:
+    path: /etc/glance/glance-api.conf
+    state: present
+    regexp: 'connection = sqlite:////var/lib/glance/glance.sqlite'
+    line: 'connection = mysql+pymysql://glance:GLANCE_DBPASS@controller/glance'
+
+- name: configuring keystone_authtoken from glance-api.conf
+  lineinfile:
+    path: /etc/glance/glance-api.conf
+    state: present
+    regexp: '{{ item.regexp }}'
+    line: '{{ item.line }}'
+  with_items:
+  - { regexp: '#www_authenticate_uri = <none', line: 'www_authenticate_uri = http://controller:5000'}
+  - { regexp: '#auth_url = <none', line: 'auth_url = http://controller:5000'}
+  - { regexp: '#memcached_servers = <none', line: 'memcached_servers = controller:11211'}
+  - { regexp: '#auth_type = <none', line: 'auth_type = password'}
+  - { regexp: '#project_domain_name = <none', line: 'project_domain_name = Default'}
+  - { regexp: '#user_domain_name = <none', line: 'user_domain_name = Default'}
+  - { regexp: '#project_name = <none', line: 'project_name = service'}
+  - { regexp: '#username = <none', line: 'username = glance'}
+  - { regexp: '#password = <none', line: 'password = GLANCE_PASS'}
+
+- name: configure paste_deploy from glance-api.conf
+  lineinfile:
+    path: /etc/glance/glance-api.conf
+    state: present
+    regexp: '#flavor = keystone'
+    line: 'flavor = keystone'
+
+- name: configure glance_store from glance-api.conf
+  lineinfile:
+    path: /etc/glance/glance-api.conf
+    state: present
+    regexp: '{{ item.regexp }}'
+    line: '{{ item.line }}'
+  with_items:
+  - { regexp: '#stores = file,http', line: 'stores = file,http'}
+  - { regexp: '#default_store = file', line: 'default_store = file'}
+  - { regexp: '#filesystem_store_datadir = /var/lib/glance/images/', line: 'filesystem_store_datadir = /var/lib/glance/images/'}
+
+
+- name: configure oslo_limit from glance-api.conf
+  lineinfile:
+    path: /etc/glance/glance-api.conf
+    state: present
+    line: '{{ item }}'
+  with_items:
+  - '[oslo_limit]'
+  - 'auth_url = http://controller:5000'
+  - 'auth_type = password'
+  - 'user_domain_id = default'
+  - 'username = MY_SERVICE'
+  - 'system_scope = all'
+  - 'password = MY_PASSWORD'
+  - 'endpoint_id = ENDPOINT_ID'
+  - 'region_name: RegionOne'
+
+- name: granting reader access to system_scope
+  shell:
+    sudo openstack role add --user My_Service --user-domain Default --system all reader
+  failed_when: false
+  no_log: True
+
+- name: configure DEFAULT from glance-api.conf
+  lineinfile:
+    path: /etc/glance/glance-api.conf
+    state: present
+    regexp: '#use_keystone_limits = True'
+    line: 'use_keystone_limits = True'
+
+- name: populating image service database
+  shell:
+    sudo su -s /bin/sh -c "glance-manage db_sync" glance
+  failed_when: false
+  no_log: True
+
+# Initialize installation
+
+- name: restarting the image services
+  service:
+    name: glance-api
+    state: restarted
+
+
+
+
+
+
+

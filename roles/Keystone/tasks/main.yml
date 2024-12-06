@@ -1,0 +1,70 @@
+# Keystone (Identity Service)
+
+- name: editing connection keystone.conf file
+  ansible.builtin.lineinfile:
+    path: /etc/keystone/keystone.conf
+    state: present
+    regexp: 'connection = sqlite:////var/lib/keystone/keystone.db'
+    line: 'connection = mysql+pymysql://keystone:KEYSTONE_DPASS@controller/keystone'
+
+- name: editing provider keystone.conf file
+  ansible.builtin.lineinfile:
+    path: /etc/keystone/keystone.conf
+    state: present
+    regexp: '#provider = fernet'
+    line: 'provider = fernet'
+
+- name: install packages
+  shell:
+    sudo apt install keystone apache2 libapache2-mod-wsgi-py3
+
+- name: populating the identity service database
+  shell:
+    sudo su -s /bin/sh -c "keystone-manage db_sync" keystone
+  failed_when: false
+  no_log: True
+
+- name: initialize fernet key repositories
+  command:
+    sudo keystone-manage fernet_setup --keystone-user keystone --keystone-group keystone
+
+- name: encryption of credential secrets
+  command:
+    sudo keystone-manage credential_setup --keystone-user keystone --keystone-group keystone
+
+- name: bootstap the identity service
+  shell:
+    sudo keystone-manage bootstrap --bootstrap-password ADMIN_PASS \
+    --bootstrap-admin-url http://controller:35357/v3/ \
+    --bootstrap-internal-url http://controller:5000/v3/ \
+    --bootstrap-public-url http://controller:5000/v3/ \
+    --bootstrap-region-id RegionOne
+  failed_when: false
+  no_log: True
+
+# Configure the apache HTTP server
+
+- name: edit apache2.conf
+  lineinfile:
+    path: /etc/apache2/apache2.conf
+    state: present
+    regexp: "ServerName"
+    line: "ServerName controller"
+
+#Finalized Installation
+
+- name: restart apache2 service
+  service:
+    name: apache2
+    state: restarted
+    enabled: true
+
+- name: configure the administrative account
+  shell:
+    export OS_USERNAME=admin
+    export OS_PASSWORD=ADMIN_PASS
+    export OS_PROJECT_NAME=admin
+    export OS_USER_DOMAIN_NAME=Default
+    export OS_AUTH_URL=http://controller:35357/v3
+    export OS_IDENTITY_API_VERSION=3
+
